@@ -149,7 +149,7 @@ export const useBhashaMitra = () => {
 
   // --- API Helpers ---
 
-  // Helper to filter results based on confidence score (Pro Max Feature)
+  // Helper to filter results based on confidence score (Fixed Generics)
   const filterByConfidence = <T extends { confidenceScore?: number }>(items: T[], threshold = 0.7): T[] => {
     return items.filter(item => (item.confidenceScore ?? 1) >= threshold);
   };
@@ -160,22 +160,21 @@ export const useBhashaMitra = () => {
     
     if (!result) return null;
 
-    // Log AI Reasoning (For Debugging)
     if (result._analysis) {
       console.log('AI Analysis:', result._analysis);
     }
 
-    // Process & Filter Spelling Errors
-    const rawSpelling = (result.spellingErrors || []).map((e: any) => ({ ...e, position: e.position ?? 0 }));
+    // Process & Filter Spelling Errors (Type Assertion Added)
+    const rawSpelling = (result.spellingErrors || []).map((e: any) => ({ ...e, position: e.position ?? 0 })) as Correction[];
     const filteredSpelling = filterByConfidence(rawSpelling, 0.8);
     setCorrections(filteredSpelling);
 
     // Process Punctuation
-    const rawPunct = (result.punctuationIssues || []).map((p: any) => ({ ...p, position: p.position ?? 0 }));
+    const rawPunct = (result.punctuationIssues || []).map((p: any) => ({ ...p, position: p.position ?? 0 })) as PunctuationIssue[];
     setPunctuationIssues(filterByConfidence(rawPunct, 0.75));
 
     // Process Euphony
-    const rawEuphony = (result.euphonyImprovements || []).map((e: any) => ({ ...e, position: e.position ?? 0 }));
+    const rawEuphony = (result.euphonyImprovements || []).map((e: any) => ({ ...e, position: e.position ?? 0 })) as EuphonyImprovement[];
     setEuphonyImprovements(filterByConfidence(rawEuphony, 0.7));
     
     // Process Style Mixing
@@ -184,12 +183,10 @@ export const useBhashaMitra = () => {
       mixing.corrections = mixing.corrections.map((c: any) => ({ ...c, position: c.position ?? 0 }));
       mixing.corrections = filterByConfidence(mixing.corrections, 0.85);
       
-      // If no corrections left after filtering, nullify mixing
       if (mixing.corrections.length === 0) mixing = null;
     }
     setLanguageStyleMixing(mixing);
 
-    // Stats
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     const errorCount = filteredSpelling.length;
     setStats({
@@ -200,26 +197,28 @@ export const useBhashaMitra = () => {
     return filteredSpelling;
   };
 
-  const performToneCheck = async (text: string) => {
+  const performToneCheck = async (text: string): Promise<ToneSuggestion[]> => {
     if (!selectedTone) return [];
     const prompt = buildTonePrompt(text, selectedTone);
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.2 });
     if (!result) return [];
     
-    const rawTones = (result.toneConversions || []).map((t: any) => ({ ...t, position: t.position ?? 0 }));
+    // Type Assertion Added
+    const rawTones = (result.toneConversions || []).map((t: any) => ({ ...t, position: t.position ?? 0 })) as ToneSuggestion[];
     const filteredTones = filterByConfidence(rawTones, 0.8);
     setToneSuggestions(filteredTones);
     return filteredTones;
   };
 
-  const performStyleCheck = async (text: string) => {
+  const performStyleCheck = async (text: string): Promise<StyleSuggestion[]> => {
     if (selectedStyle === 'none') return [];
     const prompt = buildStylePrompt(text, selectedStyle);
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.2 });
     if (!result) return [];
     
-    const rawStyles = (result.styleConversions || []).map((s: any) => ({ ...s, position: s.position ?? 0 }));
-    const filteredStyles = filterByConfidence(rawStyles, 0.9); // Higher threshold for style
+    // Type Assertion Added
+    const rawStyles = (result.styleConversions || []).map((s: any) => ({ ...s, position: s.position ?? 0 })) as StyleSuggestion[];
+    const filteredStyles = filterByConfidence(rawStyles, 0.9);
     setStyleSuggestions(filteredStyles);
     return filteredStyles;
   };
@@ -240,7 +239,6 @@ OUTPUT JSON:
   "suggestions": ["Suggestion 1 in Bangla"]
 }
 `;
-    // Content analysis doesn't need high filtering strictness
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.4 });
     if (result) setContentAnalysis(result);
   };
@@ -261,7 +259,6 @@ OUTPUT JSON:
     setIsLoading(true);
     setLoadingText('বিশ্লেষণ করা হচ্ছে...');
 
-    // Reset all states
     setCorrections([]);
     setToneSuggestions([]);
     setStyleSuggestions([]);
@@ -273,7 +270,7 @@ OUTPUT JSON:
     await clearHighlights();
 
     try {
-      // Parallel Execution with Staggering to prevent Rate Limits
+      // Parallel Execution
       const tasks = Promise.all([
         performMainCheck(text),
         new Promise(resolve => setTimeout(resolve, 300)).then(() => performToneCheck(text)),
@@ -286,12 +283,11 @@ OUTPUT JSON:
       setLoadingText('হাইলাইট করা হচ্ছে...');
       const highlightItems: Array<{ text: string; color: string; position?: number }> = [];
       
-      // Prepare highlights
-      (spellingResult || []).forEach((i: Correction) => highlightItems.push({ text: i.wrong, color: '#fee2e2', position: i.position }));
-      (toneResult || []).forEach((i: ToneSuggestion) => highlightItems.push({ text: i.current, color: '#fef3c7', position: i.position }));
-      (styleResult || []).forEach((i: StyleSuggestion) => highlightItems.push({ text: i.current, color: '#ccfbf1', position: i.position }));
+      // Explicitly typed items for highlighting
+      (spellingResult || []).forEach((i) => highlightItems.push({ text: i.wrong, color: '#fee2e2', position: i.position }));
+      (toneResult || []).forEach((i) => highlightItems.push({ text: i.current, color: '#fef3c7', position: i.position }));
+      (styleResult || []).forEach((i) => highlightItems.push({ text: i.current, color: '#ccfbf1', position: i.position }));
 
-      // Batch highlight
       if (highlightItems.length > 0) {
         await highlightMultipleInWord(highlightItems);
       }
