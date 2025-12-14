@@ -13,10 +13,10 @@ import { buildTonePrompt, getToneName, TONE_OPTIONS } from '@/prompts/tone';
 import { buildStylePrompt, STYLE_OPTIONS } from '@/prompts/style';
 import {
   buildMainPrompt,
-  DOC_TYPE_CONFIG, // Import the config object
+  DOC_TYPE_CONFIG,
   getDocTypeLabel,
-  DocType // Import the type - now it should be correctly exported from core.ts
-} from '@/prompts/core'; // Assuming these are in the same file
+  DocType
+} from '@/prompts/core';
 import type {
   Correction,
   ToneSuggestion,
@@ -29,7 +29,8 @@ import type {
   ViewFilter,
   ModalType,
   Stats,
-  Message
+  Message,
+  AIResponse
 } from '@/types';
 
 export const useBhashaMitra = () => {
@@ -146,31 +147,57 @@ export const useBhashaMitra = () => {
     }
   }, []);
 
-  // --- API Helpers (same as before) ---
+  // --- API Helpers ---
+
+  // Helper to filter results based on confidence score (Pro Max Feature)
+  const filterByConfidence = <T extends { confidenceScore?: number }>(items: T[], threshold = 0.7): T[] => {
+    return items.filter(item => (item.confidenceScore ?? 1) >= threshold);
+  };
+
   const performMainCheck = async (text: string) => {
     const prompt = buildMainPrompt(text, docType);
-    const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.1 });
+    const result: AIResponse | null = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.1, retries: 1 });
+    
     if (!result) return null;
 
-    const spelling = (result.spellingErrors || []).map((e: any) => ({ ...e, position: e.position ?? 0 }));
-    setCorrections(spelling);
-    setPunctuationIssues((result.punctuationIssues || []).map((p: any) => ({ ...p, position: p.position ?? 0 })));
-    setEuphonyImprovements((result.euphonyImprovements || []).map((e: any) => ({ ...e, position: e.position ?? 0 })));
+    // Log AI Reasoning (For Debugging)
+    if (result._analysis) {
+      console.log('AI Analysis:', result._analysis);
+    }
+
+    // Process & Filter Spelling Errors
+    const rawSpelling = (result.spellingErrors || []).map((e: any) => ({ ...e, position: e.position ?? 0 }));
+    const filteredSpelling = filterByConfidence(rawSpelling, 0.8);
+    setCorrections(filteredSpelling);
+
+    // Process Punctuation
+    const rawPunct = (result.punctuationIssues || []).map((p: any) => ({ ...p, position: p.position ?? 0 }));
+    setPunctuationIssues(filterByConfidence(rawPunct, 0.75));
+
+    // Process Euphony
+    const rawEuphony = (result.euphonyImprovements || []).map((e: any) => ({ ...e, position: e.position ?? 0 }));
+    setEuphonyImprovements(filterByConfidence(rawEuphony, 0.7));
     
+    // Process Style Mixing
     let mixing = result.languageStyleMixing || null;
     if (mixing && mixing.corrections) {
       mixing.corrections = mixing.corrections.map((c: any) => ({ ...c, position: c.position ?? 0 }));
+      mixing.corrections = filterByConfidence(mixing.corrections, 0.85);
+      
+      // If no corrections left after filtering, nullify mixing
+      if (mixing.corrections.length === 0) mixing = null;
     }
     setLanguageStyleMixing(mixing);
 
+    // Stats
     const words = text.trim().split(/\s+/).filter(Boolean).length;
-    const errorCount = spelling.length;
+    const errorCount = filteredSpelling.length;
     setStats({
       totalWords: words,
       errorCount,
       accuracy: words > 0 ? Math.round(((words - errorCount) / words) * 100) : 100
     });
-    return spelling;
+    return filteredSpelling;
   };
 
   const performToneCheck = async (text: string) => {
@@ -178,9 +205,11 @@ export const useBhashaMitra = () => {
     const prompt = buildTonePrompt(text, selectedTone);
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.2 });
     if (!result) return [];
-    const tones = (result.toneConversions || []).map((t: any) => ({ ...t, position: t.position ?? 0 }));
-    setToneSuggestions(tones);
-    return tones;
+    
+    const rawTones = (result.toneConversions || []).map((t: any) => ({ ...t, position: t.position ?? 0 }));
+    const filteredTones = filterByConfidence(rawTones, 0.8);
+    setToneSuggestions(filteredTones);
+    return filteredTones;
   };
 
   const performStyleCheck = async (text: string) => {
@@ -188,13 +217,15 @@ export const useBhashaMitra = () => {
     const prompt = buildStylePrompt(text, selectedStyle);
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.2 });
     if (!result) return [];
-    const styles = (result.styleConversions || []).map((s: any) => ({ ...s, position: s.position ?? 0 }));
-    setStyleSuggestions(styles);
-    return styles;
+    
+    const rawStyles = (result.styleConversions || []).map((s: any) => ({ ...s, position: s.position ?? 0 }));
+    const filteredStyles = filterByConfidence(rawStyles, 0.9); // Higher threshold for style
+    setStyleSuggestions(filteredStyles);
+    return filteredStyles;
   };
 
   const analyzeContentLogic = async (text: string) => {
-    const cfg = DOC_TYPE_CONFIG[docType]; // Fixed: This should work now as docType is a state variable of type DocType and DocTypeConfig has the required properties
+    const cfg = DOC_TYPE_CONFIG[docType]; 
     const prompt = `
 Role: ${cfg.roleInstruction}
 Task: Analyze the content structure briefly.
@@ -209,6 +240,7 @@ OUTPUT JSON:
   "suggestions": ["Suggestion 1 in Bangla"]
 }
 `;
+    // Content analysis doesn't need high filtering strictness
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.4 });
     if (result) setContentAnalysis(result);
   };
@@ -229,6 +261,7 @@ OUTPUT JSON:
     setIsLoading(true);
     setLoadingText('বিশ্লেষণ করা হচ্ছে...');
 
+    // Reset all states
     setCorrections([]);
     setToneSuggestions([]);
     setStyleSuggestions([]);
@@ -240,11 +273,12 @@ OUTPUT JSON:
     await clearHighlights();
 
     try {
+      // Parallel Execution with Staggering to prevent Rate Limits
       const tasks = Promise.all([
         performMainCheck(text),
-        new Promise(resolve => setTimeout(resolve, 200)).then(() => performToneCheck(text)),
-        new Promise(resolve => setTimeout(resolve, 400)).then(() => performStyleCheck(text)),
-        new Promise(resolve => setTimeout(resolve, 600)).then(() => analyzeContentLogic(text))
+        new Promise(resolve => setTimeout(resolve, 300)).then(() => performToneCheck(text)),
+        new Promise(resolve => setTimeout(resolve, 600)).then(() => performStyleCheck(text)),
+        new Promise(resolve => setTimeout(resolve, 900)).then(() => analyzeContentLogic(text))
       ]);
 
       const [spellingResult, toneResult, styleResult] = await tasks;
@@ -252,17 +286,21 @@ OUTPUT JSON:
       setLoadingText('হাইলাইট করা হচ্ছে...');
       const highlightItems: Array<{ text: string; color: string; position?: number }> = [];
       
-      // Fixed: Added type annotation to 'i' in map functions
+      // Prepare highlights
       (spellingResult || []).forEach((i: Correction) => highlightItems.push({ text: i.wrong, color: '#fee2e2', position: i.position }));
       (toneResult || []).forEach((i: ToneSuggestion) => highlightItems.push({ text: i.current, color: '#fef3c7', position: i.position }));
       (styleResult || []).forEach((i: StyleSuggestion) => highlightItems.push({ text: i.current, color: '#ccfbf1', position: i.position }));
 
+      // Batch highlight
       if (highlightItems.length > 0) {
         await highlightMultipleInWord(highlightItems);
       }
+      
+      showMessage('বিশ্লেষণ সম্পন্ন হয়েছে ✓', 'success');
+
     } catch (error: any) {
       console.error(error);
-      showMessage(error?.message || 'ত্রুটি হয়েছে।', 'error');
+      showMessage(error?.message || 'ত্রুটি হয়েছে। আবার চেষ্টা করুন।', 'error');
     } finally {
       setIsLoading(false);
       setLoadingText('');
@@ -277,25 +315,16 @@ OUTPUT JSON:
   };
 
   return {
-    // State
-    apiKey,
-    setApiKey, // Fixed: Add setter
-    selectedModel,
-    setSelectedModel, // Fixed: Add setter
-    docType,
-    setDocType, // Fixed: Add setter
-    isLoading,
-    loadingText,
+    apiKey, setApiKey,
+    selectedModel, setSelectedModel,
+    docType, setDocType,
+    isLoading, loadingText,
     message,
-    activeModal,
-    setActiveModal,
-    viewFilter,
-    setViewFilter,
+    activeModal, setActiveModal,
+    viewFilter, setViewFilter,
     collapsedSections,
-    selectedTone,
-    setSelectedTone, // Fixed: Add setter
-    selectedStyle,
-    setSelectedStyle, // Fixed: Add setter
+    selectedTone, setSelectedTone,
+    selectedStyle, setSelectedStyle,
     corrections,
     toneSuggestions,
     styleSuggestions,
@@ -304,8 +333,6 @@ OUTPUT JSON:
     euphonyImprovements,
     contentAnalysis,
     stats,
-
-    // Actions
     saveSettings,
     toggleSection,
     handleHighlight,
@@ -313,12 +340,10 @@ OUTPUT JSON:
     dismissSuggestion,
     checkSpelling,
     shouldShowSection,
-
-    // Helpers
     getToneName,
     getDocTypeLabel,
     TONE_OPTIONS,
     STYLE_OPTIONS,
-    DOC_TYPE_CONFIG // Fixed: Add DOC_TYPE_CONFIG
+    DOC_TYPE_CONFIG 
   };
 };
