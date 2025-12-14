@@ -34,23 +34,36 @@ import type {
 } from '@/types';
 
 export const useBhashaMitra = () => {
-  // State definitions...
+  // Settings State
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
-  const [selectedModel, setSelectedModel] = useState(localStorage.getItem('gemini_model') || 'gemini-2.5-flash');
-  const [docType, setDocType] = useState<DocType>((localStorage.getItem('doc_type') as DocType) || 'generic');
+  const [selectedModel, setSelectedModel] = useState(
+    localStorage.getItem('gemini_model') || 'gemini-2.5-flash'
+  );
+  const [docType, setDocType] = useState<DocType>(
+    (localStorage.getItem('doc_type') as DocType) || 'generic'
+  );
 
+  // UI State
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
   const [message, setMessage] = useState<Message | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>('none');
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all');
   const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
-    spelling: false, tone: false, style: false, mixing: false, punctuation: false, euphony: false, content: false
+    spelling: false,
+    tone: false,
+    style: false,
+    mixing: false,
+    punctuation: false,
+    euphony: false,
+    content: false
   });
 
+  // Selection State
   const [selectedTone, setSelectedTone] = useState('');
   const [selectedStyle, setSelectedStyle] = useState<'none' | 'sadhu' | 'cholito'>('none');
 
+  // Data State
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [toneSuggestions, setToneSuggestions] = useState<ToneSuggestion[]>([]);
   const [styleSuggestions, setStyleSuggestions] = useState<StyleSuggestion[]>([]);
@@ -80,8 +93,12 @@ export const useBhashaMitra = () => {
   }, []);
 
   const handleHighlight = useCallback((text: string, color: string, position?: number) => {
-    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-    highlightTimeoutRef.current = setTimeout(() => highlightInWord(text, color, position), 300);
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    highlightTimeoutRef.current = setTimeout(() => {
+      highlightInWord(text, color, position);
+    }, 300);
   }, []);
 
   const handleReplace = useCallback(async (oldText: string, newText: string, position?: number) => {
@@ -89,32 +106,50 @@ export const useBhashaMitra = () => {
     if (success) {
       const target = normalize(oldText.trim());
       const isNotMatch = (textToCheck: string) => normalize(textToCheck) !== target;
+
       setCorrections(prev => prev.filter(c => isNotMatch(c.wrong)));
       setToneSuggestions(prev => prev.filter(t => isNotMatch(t.current)));
       setStyleSuggestions(prev => prev.filter(s => isNotMatch(s.current)));
       setEuphonyImprovements(prev => prev.filter(e => isNotMatch(e.current)));
       setPunctuationIssues(prev => prev.filter(p => isNotMatch(p.currentSentence)));
+
       setLanguageStyleMixing(prev => {
         if (!prev || !prev.corrections) return prev;
         const filtered = prev.corrections.filter(c => isNotMatch(c.current));
         return filtered.length > 0 ? { ...prev, corrections: filtered } : null;
       });
+
       showMessage(`সংশোধিত হয়েছে ✓`, 'success');
     } else {
       showMessage(`শব্দটি ডকুমেন্টে খুঁজে পাওয়া যায়নি।`, 'error');
     }
   }, [showMessage]);
 
-  const dismissSuggestion = useCallback((type: string, textToDismiss: string) => {
-     // Implementation remains same as before...
-     // Shortened for brevity in this fix block
-     const target = normalize(textToDismiss);
-     const isNotMatch = (t: string) => normalize(t) !== target;
-     if(type === 'spelling') setCorrections(prev => prev.filter(c => isNotMatch(c.wrong)));
-     // ... ensure other types are handled as in previous code
+  const dismissSuggestion = useCallback((
+    type: 'spelling' | 'tone' | 'style' | 'mixing' | 'punct' | 'euphony',
+    textToDismiss: string
+  ) => {
+    const target = normalize(textToDismiss);
+    const isNotMatch = (t: string) => normalize(t) !== target;
+    switch (type) {
+      case 'spelling': setCorrections(prev => prev.filter(c => isNotMatch(c.wrong))); break;
+      case 'tone': setToneSuggestions(prev => prev.filter(t => isNotMatch(t.current))); break;
+      case 'style': setStyleSuggestions(prev => prev.filter(s => isNotMatch(s.current))); break;
+      case 'mixing':
+        setLanguageStyleMixing(prev => {
+          if (!prev || !prev.corrections) return prev;
+          const filtered = prev.corrections.filter(c => isNotMatch(c.current));
+          return filtered.length > 0 ? { ...prev, corrections: filtered } : null;
+        });
+        break;
+      case 'punct': setPunctuationIssues(prev => prev.filter(p => isNotMatch(p.currentSentence))); break;
+      case 'euphony': setEuphonyImprovements(prev => prev.filter(e => isNotMatch(e.current))); break;
+    }
   }, []);
 
-  // API Helpers
+  // --- API Helpers ---
+
+  // Helper to filter results based on confidence score (Fixed Generics)
   const filterByConfidence = <T extends { confidenceScore?: number }>(items: T[], threshold = 0.7): T[] => {
     return items.filter(item => (item.confidenceScore ?? 1) >= threshold);
   };
@@ -122,50 +157,64 @@ export const useBhashaMitra = () => {
   const performMainCheck = async (text: string) => {
     const prompt = buildMainPrompt(text, docType);
     const result: AIResponse | null = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.1, retries: 1 });
-    if (!result) return null;
     
-    if (result._analysis) console.log('AI Analysis:', result._analysis);
+    if (!result) return null;
 
+    if (result._analysis) {
+      console.log('AI Analysis:', result._analysis);
+    }
+
+    // Process & Filter Spelling Errors (Type Assertion Added)
     const rawSpelling = (result.spellingErrors || []).map((e: any) => ({ ...e, position: e.position ?? 0 })) as Correction[];
     const filteredSpelling = filterByConfidence(rawSpelling, 0.8);
     setCorrections(filteredSpelling);
 
+    // Process Punctuation
     const rawPunct = (result.punctuationIssues || []).map((p: any) => ({ ...p, position: p.position ?? 0 })) as PunctuationIssue[];
     setPunctuationIssues(filterByConfidence(rawPunct, 0.75));
 
+    // Process Euphony
     const rawEuphony = (result.euphonyImprovements || []).map((e: any) => ({ ...e, position: e.position ?? 0 })) as EuphonyImprovement[];
     setEuphonyImprovements(filterByConfidence(rawEuphony, 0.7));
     
+    // Process Style Mixing
     let mixing = result.languageStyleMixing || null;
     if (mixing && mixing.corrections) {
       mixing.corrections = mixing.corrections.map((c: any) => ({ ...c, position: c.position ?? 0 }));
       mixing.corrections = filterByConfidence(mixing.corrections, 0.85);
+      
       if (mixing.corrections.length === 0) mixing = null;
     }
     setLanguageStyleMixing(mixing);
 
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     const errorCount = filteredSpelling.length;
-    setStats({ totalWords: words, errorCount, accuracy: words > 0 ? Math.round(((words - errorCount) / words) * 100) : 100 });
+    setStats({
+      totalWords: words,
+      errorCount,
+      accuracy: words > 0 ? Math.round(((words - errorCount) / words) * 100) : 100
+    });
     return filteredSpelling;
   };
 
-  const performToneCheck = async (text: string) => {
+  const performToneCheck = async (text: string): Promise<ToneSuggestion[]> => {
     if (!selectedTone) return [];
     const prompt = buildTonePrompt(text, selectedTone);
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.2 });
     if (!result) return [];
+    
     const rawTones = (result.toneConversions || []).map((t: any) => ({ ...t, position: t.position ?? 0 })) as ToneSuggestion[];
     const filteredTones = filterByConfidence(rawTones, 0.8);
     setToneSuggestions(filteredTones);
     return filteredTones;
   };
 
-  const performStyleCheck = async (text: string) => {
+  const performStyleCheck = async (text: string): Promise<StyleSuggestion[]> => {
     if (selectedStyle === 'none') return [];
     const prompt = buildStylePrompt(text, selectedStyle);
     const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.2 });
     if (!result) return [];
+    
     const rawStyles = (result.styleConversions || []).map((s: any) => ({ ...s, position: s.position ?? 0 })) as StyleSuggestion[];
     const filteredStyles = filterByConfidence(rawStyles, 0.9);
     setStyleSuggestions(filteredStyles);
@@ -178,7 +227,9 @@ export const useBhashaMitra = () => {
       const prompt = `
 Role: ${cfg.roleInstruction}
 Task: Analyze the content structure briefly.
+
 INPUT: """${text}"""
+
 OUTPUT JSON:
 {
   "contentType": "Type in Bangla (1-2 words)",
@@ -187,11 +238,12 @@ OUTPUT JSON:
   "suggestions": ["Suggestion 1 in Bangla"]
 }
 `;
+      // Content analysis gets a slightly looser check
       const result = await callGeminiJson(prompt, apiKey, selectedModel, { temperature: 0.4 });
       if (result) setContentAnalysis(result);
-    } catch (e) {
-      console.warn("Content analysis failed silently:", e);
-      // We don't throw here, so spelling check doesn't crash
+    } catch (error) {
+      console.warn('Content analysis failed (non-critical):', error);
+      // We do NOT throw here, so the rest of the app keeps working
     }
   };
 
@@ -201,6 +253,7 @@ OUTPUT JSON:
       setActiveModal('settings');
       return;
     }
+
     const text = await getTextFromWord();
     if (!text || text.trim().length === 0) {
       showMessage('টেক্সট নির্বাচন করুন বা কার্সার রাখুন', 'error');
@@ -210,25 +263,30 @@ OUTPUT JSON:
     setIsLoading(true);
     setLoadingText('বিশ্লেষণ করা হচ্ছে...');
 
-    // Reset States
-    setCorrections([]); setToneSuggestions([]); setStyleSuggestions([]);
-    setLanguageStyleMixing(null); setPunctuationIssues([]); setEuphonyImprovements([]);
+    setCorrections([]);
+    setToneSuggestions([]);
+    setStyleSuggestions([]);
+    setLanguageStyleMixing(null);
+    setPunctuationIssues([]);
+    setEuphonyImprovements([]);
     setContentAnalysis(null);
     setStats({ totalWords: 0, errorCount: 0, accuracy: 100 });
     await clearHighlights();
 
     try {
-      // Execute Main Check (Critical)
+      // Step 1: Main Check (Spelling/Grammar) - CRITICAL
       const spellingResult = await performMainCheck(text);
 
-      // Execute others in background/parallel but analyzeContentLogic handles its own errors
+      // Step 2: Parallel checks for other features (Non-critical failures handled individually)
       const otherTasks = [
-         new Promise(resolve => setTimeout(resolve, 300)).then(() => performToneCheck(text)),
-         new Promise(resolve => setTimeout(resolve, 600)).then(() => performStyleCheck(text)),
-         new Promise(resolve => setTimeout(resolve, 900)).then(() => analyzeContentLogic(text))
+        new Promise(resolve => setTimeout(resolve, 300)).then(() => performToneCheck(text)),
+        new Promise(resolve => setTimeout(resolve, 600)).then(() => performStyleCheck(text)),
+        new Promise(resolve => setTimeout(resolve, 900)).then(() => analyzeContentLogic(text))
       ];
 
       const results = await Promise.all(otherTasks);
+      
+      // Extract results carefully
       const toneResult = results[0] as ToneSuggestion[];
       const styleResult = results[1] as StyleSuggestion[];
 
@@ -242,6 +300,7 @@ OUTPUT JSON:
       if (highlightItems.length > 0) {
         await highlightMultipleInWord(highlightItems);
       }
+      
       showMessage('বিশ্লেষণ সম্পন্ন হয়েছে ✓', 'success');
 
     } catch (error: any) {
@@ -253,7 +312,6 @@ OUTPUT JSON:
     }
   }, [apiKey, selectedModel, docType, selectedTone, selectedStyle, showMessage]);
 
-  // shouldShowSection, return object... (Same as before)
   const shouldShowSection = (key: SectionKey) => {
     if (viewFilter === 'all') return true;
     if (viewFilter === 'spelling') return key === 'spelling';
@@ -262,12 +320,35 @@ OUTPUT JSON:
   };
 
   return {
-    apiKey, setApiKey, selectedModel, setSelectedModel, docType, setDocType,
-    isLoading, loadingText, message, activeModal, setActiveModal, viewFilter, setViewFilter,
-    collapsedSections, selectedTone, setSelectedTone, selectedStyle, setSelectedStyle,
-    corrections, toneSuggestions, styleSuggestions, languageStyleMixing,
-    punctuationIssues, euphonyImprovements, contentAnalysis, stats,
-    saveSettings, toggleSection, handleHighlight, handleReplace, dismissSuggestion, checkSpelling, shouldShowSection,
-    getToneName, getDocTypeLabel, TONE_OPTIONS, STYLE_OPTIONS, DOC_TYPE_CONFIG 
+    apiKey, setApiKey,
+    selectedModel, setSelectedModel,
+    docType, setDocType,
+    isLoading, loadingText,
+    message,
+    activeModal, setActiveModal,
+    viewFilter, setViewFilter,
+    collapsedSections,
+    selectedTone, setSelectedTone,
+    selectedStyle, setSelectedStyle,
+    corrections,
+    toneSuggestions,
+    styleSuggestions,
+    languageStyleMixing,
+    punctuationIssues,
+    euphonyImprovements,
+    contentAnalysis,
+    stats,
+    saveSettings,
+    toggleSection,
+    handleHighlight,
+    handleReplace,
+    dismissSuggestion,
+    checkSpelling,
+    shouldShowSection,
+    getToneName,
+    getDocTypeLabel,
+    TONE_OPTIONS,
+    STYLE_OPTIONS,
+    DOC_TYPE_CONFIG 
   };
 };
