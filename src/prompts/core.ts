@@ -1,126 +1,129 @@
 // src/prompts/core.ts
-import type { DocTypeConfig } from '@/types'; // Import the type
+import type { DocTypeConfig } from '@/types'; 
 
-// DocType এখানে ডিক্লেয়ার করি এবং এক্সপোর্ট করি
 export type DocType = 'generic' | 'academic' | 'official' | 'marketing' | 'social';
 
 /**
- * ডকুমেন্ট টাইপ কনফিগারেশন (Hybrid Approach)
+ * Advanced Configuration with explicit Persona
  */
 export const DOC_TYPE_CONFIG: { [key in DocType]: DocTypeConfig } = {
   generic: {
     label: 'সাধারণ লেখা',
-    description: 'যেকোনো সাধারণ লেখা – নিরপেক্ষভাবে বিশ্লেষণ করবে।',
-    defaultTone: '',
-    roleInstruction: 'Act as a neutral Bengali language proofreader.',
-    checkFocus: 'Focus on standard grammar, spelling clarity, and sentence structure.'
+    description: 'ব্যাকরণ এবং বানান শুদ্ধ করার জন্য।',
+    defaultTone: 'neutral',
+    roleInstruction: 'You are an expert Bengali Linguistic Editor. Your goal is to ensure grammatically correct and naturally sounding Bengali text.',
+    checkFocus: 'Prioritize spelling, spacing, and basic sentence construction.'
   },
   academic: {
     label: 'একাডেমিক লেখা',
-    description: 'গবেষণা পত্র, প্রবন্ধ, থিসিস ইত্যাদি।',
+    description: 'গবেষণা ও শিক্ষা সংক্রান্ত।',
     defaultTone: 'academic',
-    roleInstruction: 'Act as an academic editor for Bengali research papers.',
-    checkFocus: 'Ensure formal terminology, objective tone, logical flow, and proper citation format.'
+    roleInstruction: 'You are a Bengali Academic Scholar. Ensure precision, objective tone, and formal vocabulary.',
+    checkFocus: 'Check for complex sentence structure consistency, proper terminology, and logical flow.'
   },
   official: {
     label: 'অফিশিয়াল চিঠি',
-    description: 'দাপ্তরিক আবেদন, নোটিশ, অফিসিয়াল ইমেইল ইত্যাদি।',
+    description: 'দাপ্তরিক ও ফরমাল যোগাযোগের জন্য।',
     defaultTone: 'formal',
-    roleInstruction: 'Act as an expert in official Bengali correspondence.',
-    checkFocus: 'Ensure politeness, formal address (honorifics), clarity of purpose, and professional closing.'
+    roleInstruction: 'You are a Government Communication Specialist. Ensure highest level of politeness and protocol.',
+    checkFocus: 'Verify honorifics (Apni/Tahar), formal verbs (Korun/Jaan), and concise messaging.'
   },
   marketing: {
     label: 'মার্কেটিং কপি',
-    description: 'বিজ্ঞাপন, সেলস পেজ, প্রমোশনাল লেখা ইত্যাদি।',
+    description: 'বিজ্ঞাপন ও প্রচারণার জন্য।',
     defaultTone: 'persuasive',
-    roleInstruction: 'Act as a professional Bengali copywriter.',
-    checkFocus: 'Focus on persuasive language, engagement, clear Call-to-Action (CTA), and customer appeal.'
+    roleInstruction: 'You are a Senior Bengali Copywriter. Your goal is to attract and convert readers.',
+    checkFocus: 'Improve "Flow", use power words, and ensure the Call-to-Action is clear and compelling.'
   },
   social: {
-    label: 'সোশ্যাল মিডিয়া পোস্ট',
-    description: 'ফেসবুক, ইনস্টাগ্রাম, টুইটার ইত্যাদির লেখা।',
+    label: 'সোশ্যাল মিডিয়া',
+    description: 'ফেসবুক বা ব্লগের জন্য।',
     defaultTone: 'informal',
-    roleInstruction: 'Act as a Bengali social media manager.',
-    checkFocus: 'Focus on engaging tone, friendly language, hashtags capability, and brevity.'
+    roleInstruction: 'You are a Social Media Influencer. Use engaging, trendy, and conversational Bengali.',
+    checkFocus: 'Allow for creative punctuation, emojis, and slang if appropriate (but fix actual typos).'
   }
 };
 
-/**
- * UI এর জন্য লেবেল ফাংশন
- */
 export const getDocTypeLabel = (t: DocType): string => DOC_TYPE_CONFIG[t].label;
 
 /**
- * মেইন প্রম্পট বিল্ডার (Hybrid Strategy)
- * - Instructions: English (For Logic & Speed)
- * - Content: Bangla (User's Text)
- * - Output: JSON with Bangla Values
+ * COMMON BENGALI RULES (To reduce hallucinations)
+ */
+const BENGALI_RULES = `
+- **Sadhu/Cholito:** Never mix 'koriyachi' (Sadhu) with 'bolchi' (Cholito). Prefer Cholito unless the text is explicitly literary.
+- **Spelling:** Watch out for 'shosh' (শ/ষ/স) and 'no' (ণ/ন) errors based on standard Bangla Academy rules.
+- **Spacing:** Ensure spaces after commas and darii.
+- **Foreign Words:** Do not translate common English technical terms (like 'Computer', 'Internet') unless a very common Bengali equivalent exists.
+`;
+
+/**
+ * MAIN PROMPT BUILDER
+ * Uses "Chain of Thought" embedded in JSON
  */
 export const buildMainPrompt = (text: string, docType: DocType): string => {
   const docCfg = DOC_TYPE_CONFIG[docType];
   
   return `
-${docCfg.roleInstruction}
-${docCfg.checkFocus}
+ROLE: ${docCfg.roleInstruction}
+CONTEXT: The user has submitted a text type: "${docCfg.label}".
+FOCUS: ${docCfg.checkFocus}
 
-Your task is to analyze the provided Bengali text and identify errors or improvements.
+GLOBAL RULES:
+${BENGALI_RULES}
 
 INPUT TEXT:
 """${text}"""
 
-⚠️ **STRICT RULES:**
-1. **Word Indexing (Crucial):** 
-   - You must calculate the "position" based on a 0-based word index.
-   - Split the text by whitespace/newlines to count words.
-   - Example: "আমি ভাত খাই" -> "আমি"(0), "ভাত"(1), "খাই"(2).
+TASK:
+Analyze the text and return a JSON object.
 
-2. **Analysis Categories:**
-   - **spellingErrors**: Detect ONLY definite typos, wrong "juktakkhor", or grammatical spelling errors. DO NOT change proper names or English terms.
-   - **punctuationIssues**: Check for missing or incorrect sentence endings (darii/question mark). Ignore headers/titles.
-   - **languageStyleMixing**: Detect if "Sadhu" (Old style) and "Cholito" (Modern style) verbs/pronouns are mixed.
-   - **euphonyImprovements**: Suggest changes if a phrase sounds harsh, repetitive, or unnatural.
-
-3. **Output Format:**
-   - Return raw JSON only. 
-   - NO Markdown code blocks (like \`\`\`json).
-   - Values inside JSON must be in **Bengali**.
+⚠️ **CRITICAL INSTRUCTIONS**:
+1. **Indexing:** Use 0-based indexing by splitting text by whitespace. Preserve original words in "wrong"/"current" fields exactly.
+2. **Mental Sandbox:** Before listing errors, fill the "_analysis" object to establish context.
+3. **JSON Only:** Return PURE JSON. No Markdown.
 
 OUTPUT JSON STRUCTURE:
 {
+  "_analysis": {
+    "detectedTone": "Current tone of the text",
+    "detectedStyle": "sadhu OR cholito OR mixed",
+    "overallQuality": "Brief comment on quality"
+  },
   "spellingErrors": [
     {
-      "wrong": "wrong_word_from_text",
-      "suggestions": ["correct_bangla_word_1", "correct_bangla_word_2"],
-      "position": 0 
+      "wrong": "exact_wrong_word",
+      "suggestions": ["correct_word"],
+      "explanation": "Why it is wrong",
+      "position": 0
     }
   ],
   "languageStyleMixing": {
-    "detected": boolean,
-    "recommendedStyle": "Sadhu or Cholito (in Bangla)",
-    "reason": "Short explanation in Bangla",
+    "detected": true/false,
+    "recommendedStyle": "cholito (usually) or sadhu",
+    "reason": "Why mixing is detected",
     "corrections": [
       {
         "current": "mixed_word",
         "suggestion": "consistent_word",
-        "type": "Sadhu->Cholito or Cholito->Sadhu",
+        "type": "Sadhu->Cholito",
         "position": 0
       }
     ]
   },
   "punctuationIssues": [
     {
-      "issue": "Short description in Bangla",
-      "currentSentence": "Full sentence from text",
-      "correctedSentence": "Full sentence with fix",
-      "explanation": "Reason in Bangla",
+      "issue": "Missing Darii / Wrong Comma",
+      "currentSentence": "Sentence with error",
+      "correctedSentence": "Fixed sentence",
+      "explanation": "Reason",
       "position": 0
     }
   ],
   "euphonyImprovements": [
     {
-      "current": "Target phrase/word",
-      "suggestions": ["Better sounding alternative"],
-      "reason": "Why it is better (in Bangla)",
+      "current": "awkward_phrase",
+      "suggestions": ["better_phrase"],
+      "reason": "Why this sounds better",
       "position": 0
     }
   ]
