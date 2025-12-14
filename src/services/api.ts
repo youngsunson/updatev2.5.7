@@ -8,6 +8,9 @@ interface CallGeminiOptions {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Call Gemini API with JSON response mode & Retry Logic
+ */
 export const callGeminiJson = async (
   prompt: string,
   apiKey: string,
@@ -36,12 +39,18 @@ export const callGeminiJson = async (
 
       if (!response.ok) {
         const status = response.status;
+        
+        // Client Errors (400-409): Do not retry
         if (status >= 400 && status < 500 && status !== 429) {
           const bodyText = await response.text().catch(() => '');
-          if (status === 401 || status === 403) throw new Error('API Key বা পারমিশন সমস্যা।');
+          if (status === 401 || status === 403) {
+            throw new Error('API Key বা অনুমতি (permission) সংক্রান্ত সমস্যা হয়েছে। সেটিংস চেক করুন।');
+          }
           throw new Error(`Client Error (${status}): ${bodyText}`);
         }
-        throw new Error(`Server Error (${status})`);
+
+        // Server Errors (5xx) or Rate Limit (429): Trigger retry
+        throw new Error(`Server Error or Rate Limit (Status: ${status})`);
       }
 
       const data = await response.json();
@@ -51,13 +60,13 @@ export const callGeminiJson = async (
 
       const parsed = parseAIResponse(raw);
       
-      // FIXED: Added 'parsed.contentType' to validation logic
+      // Validation Logic: Ensure at least one known key exists
       if (parsed && (
           parsed._analysis || 
           parsed.spellingErrors || 
           parsed.toneConversions || 
           parsed.styleConversions ||
-          parsed.contentType // <-- This allows Content Analysis to pass
+          parsed.contentType // <-- IMPORTANT: Added this so Content Analysis works
         )) {
         return parsed;
       } else {
@@ -68,15 +77,20 @@ export const callGeminiJson = async (
       lastError = err;
       attempt++;
       
-      if (err.message.includes('API Key') || err.message.includes('Client Error')) break;
+      // Stop strictly on Client Errors
+      if (err.message.includes('API Key') || err.message.includes('Client Error')) {
+        break;
+      }
+
       console.warn(`Gemini API Attempt ${attempt} failed:`, err.message);
       
       if (attempt <= retries) {
-        await wait(1000 * Math.pow(2, attempt - 1));
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        await wait(delay);
       }
     }
   }
 
   console.error('Final API Failure:', lastError);
-  throw lastError || new Error('সার্ভার রেসপন্স করেনি।');
+  throw lastError || new Error('সার্ভার রেসপন্স করেনি। ইন্টারনেট সংযোগ চেক করুন।');
 };
