@@ -30,21 +30,19 @@ export const getTextFromWord = async (): Promise<string> => {
 
 /**
  * একাধিক শব্দ একসাথে হাইলাইট করা (Batch Highlighting)
- * Optimized for performance
  */
 export const highlightMultipleInWord = async (
   items: Array<{ text: string; color: string; position?: number }>
 ): Promise<void> => {
   if (!items || items.length === 0) return;
 
-  // Deduplicate items to prevent double highlighting of the same word
+  // Deduplicate items
   const uniqueItems = Array.from(new Set(items.map(i => JSON.stringify(i)))).map(s => JSON.parse(s));
 
   try {
     await Word.run(async (context) => {
       const body = context.document.body;
       
-      // Process in chunks to avoid blocking the UI thread if many errors
       const chunkSize = 20; 
       for (let i = 0; i < uniqueItems.length; i += chunkSize) {
         const chunk = uniqueItems.slice(i, i + chunkSize);
@@ -53,19 +51,15 @@ export const highlightMultipleInWord = async (
           const cleanText = item.text.trim();
           if (!cleanText) continue;
 
-          // Search with options
           const results = body.search(cleanText, {
             matchCase: false,
-            matchWholeWord: !/[\s\.,।?!]/.test(cleanText) // If it contains spaces/punct, don't enforce whole word
+            matchWholeWord: !/[\s\.,।?!]/.test(cleanText)
           });
           results.load('items');
           
           await context.sync(); 
           
-          // Highlight all occurrences (Ideally we should use position, but Word API limitation makes it hard)
-          // For now, this highlights ALL matching words. 
           for (let j = 0; j < results.items.length; j++) {
-             // In "Pro Max" logic, we could check context here, but keeping it simple for stability
              results.items[j].font.highlightColor = item.color;
           }
         }
@@ -99,7 +93,6 @@ export const highlightInWord = async (
       results.load('items');
       await context.sync();
 
-      // Highlight all occurrences
       for (let i = 0; i < results.items.length; i++) {
         results.items[i].font.highlightColor = color;
       }
@@ -132,13 +125,8 @@ export const replaceInWord = async (
       await context.sync();
 
       if (results.items.length > 0) {
-        // Replace the FIRST occurrence found.
-        // In a perfect world, we would match context/position.
         results.items[0].insertText(newText, Word.InsertLocation.replace);
-        
-        // Remove highlight after replacement
         results.items[0].font.highlightColor = '#FFFFFF'; 
-        
         await context.sync();
         return true;
       }
@@ -152,12 +140,14 @@ export const replaceInWord = async (
 
 /**
  * সব হাইলাইট মুছে ফেলা (Clear All)
+ * Fixed: Use 'None' instead of null
  */
 export const clearHighlights = async (): Promise<void> => {
   try {
     await Word.run(async (context) => {
-      // It's safer to clear body range than selection
-      context.document.body.font.highlightColor = null; // null sets it to 'No Color'
+      // TypeScript Error Fix: Type 'null' is not assignable to type 'string'.
+      // Correct value for clearing highlight in Office JS is 'None'.
+      context.document.body.font.highlightColor = 'None'; 
       await context.sync();
     });
   } catch (error) {
