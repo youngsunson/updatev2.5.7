@@ -6,7 +6,7 @@
            xsi:type="TaskPaneApp">
 
   <!-- ATTENTION: This GUID MUST be unique for your application in the store. -->
-  <Id>340ae0b8-c459-471b-a2c6-b493a700b0ed</Id>
+  <Id>3f7ff5ae-5c93-44d6-82f0-0719fa75a939</Id>
   <Version>2.0.0.0</Version>
   <ProviderName>Bhasha Mitra</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
