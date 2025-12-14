@@ -1,85 +1,66 @@
 // src/prompts/tone.ts
 
 /**
- * Tone Instructions (English Logic for better AI understanding)
+ * FEW-SHOT EXAMPLES (To guide the AI)
  */
+const TONE_EXAMPLES = `
+Examples of Tone Conversion:
+
+1. **Formal (Official)**:
+   - Input: "কাজটা করে দিস।" -> Output: "দয়া করে কাজটি সম্পন্ন করুন।"
+   - Input: "তোর নাম কি?" -> Output: "আপনার নাম কি জানতে পারি?"
+
+2. **Professional**:
+   - Input: "আমি এটা পারবো না মনে হয়।" -> Output: "বিষয়টি আমার জন্য চ্যালেঞ্জিং হতে পারে।"
+   - Input: "তাড়াতাড়ি পাঠান।" -> Output: "দ্রুত প্রেরণ করার অনুরোধ রইল।"
+
+3. **Friendly/Informal**:
+   - Input: "আপনি কি ভোজন সম্পন্ন করিয়াছেন?" -> Output: "দুপুরের খাওয়া হয়েছে?"
+   - Input: "ধন্যবাদ জ্ঞাপন করছি।" -> Output: "থ্যাংকস!"
+`;
+
 const toneInstructions: Record<string, string> = {
-  'formal': `Role: Expert Bengali Editor. Task: Convert the text to a **Formal (Official)** tone.
-   - Use polite pronouns (Apni/Apnar).
-   - Use formal verbs (Korun/Bolun).
-   - Maintain complete sentence structures.
-   - Avoid slang.`,
-
-  'informal': `Role: Friendly Bengali Writer. Task: Convert the text to an **Informal (Casual)** tone.
-   - Use casual pronouns (Tumi/Tui) as appropriate.
-   - Use conversational verbs.
-   - Simple and direct vocabulary.`,
-
-  'professional': `Role: Corporate Communication Expert. Task: Convert the text to a **Professional** tone.
-   - Focus on clarity, confidence, and efficiency.
-   - Use standard business vocabulary.
-   - Avoid overly emotional or vague words.`,
-
-  'friendly': `Role: Social Coordinator. Task: Convert the text to a **Friendly & Warm** tone.
-   - Use welcoming and positive language.
-   - Add warmth to the phrasing.
-   - Suitable for personal connections.`,
-
-  'respectful': `Role: Cultural Etiquette Expert. Task: Convert the text to a **Respectful** tone.
-   - Use high honorifics and humble vocabulary.
-   - Suitable for addressing elders or dignitaries.`,
-
-  'persuasive': `Role: Marketing Expert. Task: Convert the text to a **Persuasive** tone.
-   - Use strong, action-oriented verbs.
-   - Create a sense of urgency or benefit.
-   - Focus on positive outcomes.`,
-
-  'neutral': `Role: Journalist. Task: Convert the text to a **Neutral (Objective)** tone.
-   - Remove emotional bias.
-   - Use factual and direct language.
-   - Suitable for reporting or documentation.`,
-
-  'academic': `Role: Academic Scholar. Task: Convert the text to an **Academic** tone.
-   - Use standard terminology.
-   - Use complex sentence structures where necessary for precision.
-   - Third-person perspective preferred.`
+  'formal': `Target: **Formal (Official)**. Use 'Apni'. Avoid slang. Be polite and distant.`,
+  'informal': `Target: **Informal (Casual)**. Use 'Tumi' or 'Tui'. Be conversational like speaking to a friend.`,
+  'professional': `Target: **Professional**. Clear, concise, business-like. Avoid emotions.`,
+  'friendly': `Target: **Friendly**. Warm, welcoming, enthusiastic.`,
+  'respectful': `Target: **Respectful**. High honorifics (Apni/Tini). Humble self-reference.`,
+  'persuasive': `Target: **Persuasive**. Action-oriented verbs. Highlight benefits.`,
+  'neutral': `Target: **Neutral**. Objective, journalistic style. No bias.`,
+  'academic': `Target: **Academic**. Scholarly vocabulary. Complex sentence structures.`
 };
 
-/**
- * Tone Prompt Builder
- */
 export const buildTonePrompt = (text: string, tone: string): string => {
-  return `${toneInstructions[tone]}
+  return `
+ROLE: You are an expert Bengali Stylistic Editor.
+TASK: Rewrite specific parts of the text to match the **${tone.toUpperCase()}** tone.
+
+${TONE_EXAMPLES}
+
+CURRENT TARGET TONE: ${toneInstructions[tone]}
 
 INPUT TEXT:
 """${text}"""
 
 INSTRUCTIONS:
-1. Analyze the text word by word.
-2. Identify words/phrases that do NOT match the target tone (${tone}).
-3. Suggest a replacement in **Bengali**.
-4. **"current" field**: Must be an EXACT copy of the word/phrase from the input text.
-5. **"position" field**: 0-based word index of the start of the phrase.
+1. Identify words/phrases that clash with the ${tone} tone.
+2. Provide a replacement that fits the context perfectly.
+3. Keep the meaning unchanged.
 
-OUTPUT FORMAT (JSON ONLY, No Markdown):
+OUTPUT JSON:
 {
   "toneConversions": [
     {
       "current": "exact_text_match",
       "suggestion": "better_tone_replacement",
-      "reason": "short explanation in Bangla",
+      "reason": "Why this change fits '${tone}' tone",
       "position": 0
     }
   ]
 }
-
-If no changes are needed, return: { "toneConversions": [] }
 `;
 };
 
-/**
- * UI তে দেখানোর জন্য বাংলা নাম
- */
 export const getToneName = (tone: string): string => {
   const map: Record<string, string> = {
     'formal': '📋 আনুষ্ঠানিক',
@@ -94,17 +75,14 @@ export const getToneName = (tone: string): string => {
   return map[tone] || tone;
 };
 
-/**
- * UI Options List
- */
 export const TONE_OPTIONS = [
-  { id: '', icon: '❌', title: 'কোনটি নয়', desc: 'শুধু বানান ও ব্যাকরণ পরীক্ষা' },
-  { id: 'formal', icon: '📋', title: 'আনুষ্ঠানিক (Formal)', desc: 'দাপ্তরিক চিঠি, আবেদন, প্রতিবেদন' },
-  { id: 'informal', icon: '💬', title: 'অনানুষ্ঠানিক (Informal)', desc: 'ব্যক্তিগত চিঠি, ব্লগ, সোশ্যাল মিডিয়া' },
-  { id: 'professional', icon: '💼', title: 'পেশাদার (Professional)', desc: 'ব্যবসায়িক যোগাযোগ, কর্পোরেট' },
-  { id: 'friendly', icon: '😊', title: 'বন্ধুত্বপূর্ণ (Friendly)', desc: 'উষ্ণ, আন্তরিক যোগাযোগ' },
-  { id: 'respectful', icon: '🙏', title: 'সম্মানজনক (Respectful)', desc: 'বয়োজ্যেষ্ঠ বা সম্মানিত ব্যক্তি' },
-  { id: 'persuasive', icon: '💪', title: 'প্রভাবশালী (Persuasive)', desc: 'মার্কেটিং, বিক্রয়, প্রচারণা' },
-  { id: 'neutral', icon: '⚖️', title: 'নিরপেক্ষ (Neutral)', desc: 'সংবাদ, তথ্যমূলক লেখা' },
-  { id: 'academic', icon: '📚', title: 'শিক্ষামূলক (Academic)', desc: 'গবেষণা পত্র, প্রবন্ধ' }
+  { id: '', icon: '❌', title: 'কোনটি নয়', desc: 'স্বাভাবিক বিশ্লেষণ' },
+  { id: 'formal', icon: '📋', title: 'আনুষ্ঠানিক (Formal)', desc: 'দাপ্তরিক চিঠি, আবেদন' },
+  { id: 'informal', icon: '💬', title: 'অনানুষ্ঠানিক (Informal)', desc: 'বন্ধু-বান্ধব, সোশ্যাল মিডিয়া' },
+  { id: 'professional', icon: '💼', title: 'পেশাদার (Professional)', desc: 'অফিস, বিজনেস' },
+  { id: 'friendly', icon: '😊', title: 'বন্ধুত্বপূর্ণ (Friendly)', desc: 'উষ্ণ সম্পর্ক' },
+  { id: 'respectful', icon: '🙏', title: 'সম্মানজনক (Respectful)', desc: 'গুরুজনদের জন্য' },
+  { id: 'persuasive', icon: '💪', title: 'প্রভাবশালী (Persuasive)', desc: 'মার্কেটিং' },
+  { id: 'neutral', icon: '⚖️', title: 'নিরপেক্ষ (Neutral)', desc: 'রিপোর্ট' },
+  { id: 'academic', icon: '📚', title: 'শিক্ষামূলক (Academic)', desc: 'গবেষণা' }
 ];
