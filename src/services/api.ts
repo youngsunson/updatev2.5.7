@@ -1,14 +1,19 @@
 // src/services/api.ts
 import { parseAIResponse, extractTextFromGeminiResponse } from '@/utils/jsonFixer';
-// import type { Correction, ToneSuggestion, StyleSuggestion, PunctuationIssue, EuphonyImprovement, ContentAnalysis, StyleMixing } from '@/types'; // <-- এই লাইনটি মুছে ফেলুন
 
 interface CallGeminiOptions {
   temperature?: number;
+  retries?: number; // নতুন অপশন: কতবার রি-ট্রাই করবে
 }
 
 /**
- * Call Gemini API with JSON response mode
- * Optimized for speed and strictly typed responses
+ * Utility: Wait function for exponential backoff
+ */
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Call Gemini API with JSON response mode & Retry Logic
+ * Robust implementation for Production use.
  */
 export const callGeminiJson = async (
   prompt: string,
@@ -16,54 +21,88 @@ export const callGeminiJson = async (
   selectedModel: string,
   options: CallGeminiOptions = {}
 ): Promise<any | null> => {
-  const { temperature = 0.2 } = options;
+  // Default values: Temperature 0.3 (balanced), Retries 1 (try once more if fails)
+  const { temperature = 0.3, retries = 1 } = options;
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`;
 
-  let response: Response;
-
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json', // Force JSON mode for speed
-          temperature
-        }
-      })
-    });
-  } catch (err: any) {
-    console.error('Network error:', err);
-    throw new Error('ইন্টারনেট সংযোগে সমস্যা হয়েছে। দয়া করে নেটওয়ার্ক চেক করে আবার চেষ্টা করুন।');
-  }
-
-  if (!response.ok) {
-    const status = response.status;
-    let userMessage = '';
-
-    if (status === 401 || status === 403) {
-      userMessage = 'API Key বা অনুমতি (permission) সংক্রান্ত সমস্যা হয়েছে। Key সঠিক কিনা চেক করুন।';
-    } else if (status === 429) {
-      userMessage = 'খুব দ্রুত রিকোয়েস্ট পাঠানো হচ্ছে। কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন (Rate Limit)।';
-    } else if (status === 404) {
-      userMessage = `মডেল (${selectedModel}) খুঁজে পাওয়া যায়নি। সেটিংস থেকে সঠিক মডেল সিলেক্ট করুন।`;
-    } else if (status >= 500) {
-      userMessage = 'Gemini সার্ভারে সাময়িক সমস্যা হচ্ছে। কিছুক্ষণ পর আবার চেষ্টা করুন।';
-    } else {
-      userMessage = `সার্ভার ত্রুটি (Status: ${status})।`;
-    }
-
-    const bodyText = await response.text().catch(() => '');
-    console.error('Gemini API error:', status, bodyText);
-    throw new Error(userMessage);
-  }
-
-  const data = await response.json();
-  const raw = extractTextFromGeminiResponse(data);
+  let attempt = 0;
+  let lastError: Error | null = null;
   
-  if (!raw) return null;
+  // Retry Loop
+  while (attempt <= retries) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json', // Force JSON mode
+            temperature: temperature
+          }
+        })
+      });
 
-  return parseAIResponse(raw);
+      if (!response.ok) {
+        const status = response.status;
+        
+        // Client Errors (400-409): Do not retry (Wrong Key, Bad Request)
+        if (status >= 400 && status < 500 && status !== 429) {
+          const bodyText = await response.text().catch(() => '');
+          if (status === 401 || status === 403) {
+            throw new Error('API Key বা অনুমতি (permission) সংক্রান্ত সমস্যা হয়েছে। সেটিংস চেক করুন।');
+          }
+          throw new Error(`Client Error (${status}): ${bodyText}`);
+        }
+
+        // Server Errors (5xx) or Rate Limit (429): Throw to trigger retry
+        throw new Error(`Server Error or Rate Limit (Status: ${status})`);
+      }
+
+      const data = await response.json();
+      
+      // Extract clean text from Gemini's nested response
+      const raw = extractTextFromGeminiResponse(data);
+      
+      if (!raw) return null; // Empty response
+
+      // Parse the JSON string
+      const parsed = parseAIResponse(raw);
+      
+      // Basic validation: Check if it looks like our schema
+      if (parsed && (
+          parsed._analysis || 
+          parsed.spellingErrors || 
+          parsed.toneConversions || 
+          parsed.styleConversions
+        )) {
+        return parsed;
+      } else {
+        // If JSON is valid but structure is wrong, treat as an error to retry (maybe hallucination)
+        throw new Error("Invalid JSON structure received from AI");
+      }
+
+    } catch (err: any) {
+      lastError = err;
+      attempt++;
+      
+      // If it's a critical client error, stop immediately
+      if (err.message.includes('API Key') || err.message.includes('Client Error')) {
+        break;
+      }
+
+      console.warn(`Gemini API Attempt ${attempt} failed:`, err.message);
+      
+      if (attempt <= retries) {
+        // Exponential backoff: Wait 1s, then 2s, then 4s...
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        await wait(delay);
+      }
+    }
+  }
+
+  // If all attempts fail
+  console.error('Final API Failure:', lastError);
+  throw lastError || new Error('অজানা কারণে সার্ভারের সাথে সংযোগ স্থাপন করা যাচ্ছে না।');
 };
