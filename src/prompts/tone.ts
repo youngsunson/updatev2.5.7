@@ -20,16 +20,19 @@ Examples of Tone Conversion:
 `;
 
 const toneInstructions: Record<string, string> = {
-  'formal': `Target: **Formal (Official)**. Use 'Apni'. Avoid slang. Be polite and distant.`,
-  'informal': `Target: **Informal (Casual)**. Use 'Tumi' or 'Tui'. Be conversational like speaking to a friend.`,
-  'professional': `Target: **Professional**. Clear, concise, business-like. Avoid emotions.`,
-  'friendly': `Target: **Friendly**. Warm, welcoming, enthusiastic.`,
-  'respectful': `Target: **Respectful**. High honorifics (Apni/Tini). Humble self-reference.`,
-  'persuasive': `Target: **Persuasive**. Action-oriented verbs. Highlight benefits.`,
-  'neutral': `Target: **Neutral**. Objective, journalistic style. No bias.`,
-  'academic': `Target: **Academic**. Scholarly vocabulary. Complex sentence structures.`
+  'formal': `Target: **Formal (Official)**. Use 'Apni'. Avoid slang. Be polite and distant. Use honorifics like 'Mahashoy'.`,
+  'informal': `Target: **Informal (Casual)**. Use 'Tumi' or 'Tui'. Be conversational like speaking to a friend. Use contractions where natural.`,
+  'professional': `Target: **Professional**. Clear, concise, business-like. Avoid emotions. Focus on efficiency and clarity.`,
+  'friendly': `Target: **Friendly**. Warm, welcoming, enthusiastic. Use positive words.`,
+  'respectful': `Target: **Respectful**. High honorifics (Apni/Tini). Humble self-reference. Suitable for elders.`,
+  'persuasive': `Target: **Persuasive**. Action-oriented verbs. Highlight benefits. Create urgency.`,
+  'neutral': `Target: **Neutral**. Objective, journalistic style. No bias. Just facts.`,
+  'academic': `Target: **Academic**. Scholarly vocabulary. Complex sentence structures. Third-person perspective.`
 };
 
+/**
+ * Tone Prompt Builder
+ */
 export const buildTonePrompt = (text: string, tone: string): string => {
   return `
 ROLE: You are an expert Bengali Stylistic Editor.
@@ -42,25 +45,32 @@ CURRENT TARGET TONE: ${toneInstructions[tone]}
 INPUT TEXT:
 """${text}"""
 
-INSTRUCTIONS:
-1. Identify words/phrases that clash with the ${tone} tone.
-2. Provide a replacement that fits the context perfectly.
-3. Keep the meaning unchanged.
+STRICT RULES:
+1. **Preserve Meaning:** Do not change the core message, only the delivery style.
+2. **Minimalism:** Only change words that clearly violate the ${tone} tone.
+3. **No Hallucinations:** If a sentence is already in the correct tone, DO NOT suggest changes.
+4. **Positioning:** "position" must be the 0-based word index.
 
-OUTPUT JSON:
+OUTPUT JSON (No Markdown):
 {
   "toneConversions": [
     {
-      "current": "exact_text_match",
-      "suggestion": "better_tone_replacement",
+      "current": "exact_original_substring",
+      "suggestion": "improved_version",
       "reason": "Why this change fits '${tone}' tone",
-      "position": 0
+      "position": 0,
+      "confidenceScore": 0.9
     }
   ]
 }
+
+If no changes are needed, return: { "toneConversions": [] }
 `;
 };
 
+/**
+ * UI তে দেখানোর জন্য বাংলা নাম
+ */
 export const getToneName = (tone: string): string => {
   const map: Record<string, string> = {
     'formal': '📋 আনুষ্ঠানিক',
@@ -75,6 +85,9 @@ export const getToneName = (tone: string): string => {
   return map[tone] || tone;
 };
 
+/**
+ * UI Options List
+ */
 export const TONE_OPTIONS = [
   { id: '', icon: '❌', title: 'কোনটি নয়', desc: 'স্বাভাবিক বিশ্লেষণ' },
   { id: 'formal', icon: '📋', title: 'আনুষ্ঠানিক (Formal)', desc: 'দাপ্তরিক চিঠি, আবেদন' },
