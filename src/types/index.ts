@@ -3,11 +3,17 @@
 /*                                TYPES                                       */
 /* -------------------------------------------------------------------------- */
 
-// export type DocType = 'generic' | 'academic' | 'official' | 'marketing' | 'social'; // <-- এই লাইনটি মুছে ফেলুন
+// AI Analysis Metadata (For better reasoning)
+export interface AIAnalysisMeta {
+  detectedTone: string;
+  detectedStyle: 'sadhu' | 'cholito' | 'mixed';
+  overallQuality: string;
+}
 
 export interface Correction {
   wrong: string;
   suggestions: string[];
+  explanation?: string; // Added explanation for better user understanding
   position?: number;
 }
 
@@ -74,17 +80,24 @@ export type ViewFilter = 'all' | 'spelling' | 'punctuation';
 
 export type ModalType = 'none' | 'settings' | 'instructions' | 'tone' | 'style' | 'doctype' | 'mainMenu';
 
-// DocTypeConfig এ নতুন প্রপার্টিগুলো যোগ করি
 export interface DocTypeConfig {
   label: string;
   description: string;
   defaultTone: string;
-  roleInstruction: string; // Add this
-  checkFocus: string;      // Add this
+  roleInstruction: string;
+  checkFocus: string;
 }
 
-// DocType এখন src/prompts/core.ts থেকে ইমপোর্ট করা হবে। এখানে ডিক্লেয়ার করা যাবে না।
-// export type DocType = 'generic' | 'academic' | 'official' | 'marketing' | 'social'; // <-- এই লাইনটি মুছে ফেলুন যদি আগে থাকে
+// Main Response Structure
+export interface AIResponse {
+  _analysis?: AIAnalysisMeta; // New field for CoT
+  spellingErrors?: Correction[];
+  languageStyleMixing?: StyleMixing;
+  punctuationIssues?: PunctuationIssue[];
+  euphonyImprovements?: EuphonyImprovement[];
+  toneConversions?: ToneSuggestion[]; // Optional if merged
+  styleConversions?: StyleSuggestion[]; // Optional if merged
+}
 
 export interface Stats {
   totalWords: number;
