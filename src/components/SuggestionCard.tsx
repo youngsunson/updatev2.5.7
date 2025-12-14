@@ -46,6 +46,30 @@ type SuggestionCardProps =
   | PunctuationCardProps
   | EuphonyCardProps;
 
+/**
+ * Utility: Confidence Score Bar
+ */
+const ConfidenceBar: React.FC<{ score?: number }> = ({ score }) => {
+  if (score === undefined) return null;
+  const percentage = Math.round(score * 100);
+  
+  let color = '#22c55e'; // Green
+  if (percentage < 80) color = '#eab308'; // Yellow
+  if (percentage < 60) color = '#ef4444'; // Red
+
+  return (
+    <div className="confidence-wrapper" title={`AI Confidence: ${percentage}%`}>
+      <span className="confidence-label">AI:</span>
+      <div className="confidence-track">
+        <div 
+          className="confidence-fill" 
+          style={{ width: `${percentage}%`, backgroundColor: color }}
+        />
+      </div>
+    </div>
+  );
+};
+
 export const SuggestionCard: React.FC<SuggestionCardProps> = ({ type, data, onDismiss, onHighlight, onReplace }) => {
   const getCardClass = () => {
     switch (type) {
@@ -53,12 +77,10 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({ type, data, onDi
       case 'tone': return 'suggestion-card warning-card';
       case 'style': return 'suggestion-card info-card';
       case 'punctuation': return 'suggestion-card orange-card';
-      case 'euphony': return 'suggestion-card';
+      case 'euphony': return 'suggestion-card euphony-card'; // Add specific class
       default: return 'suggestion-card';
     }
   };
-
-  // Fixed: Remove unused function 'getHighlightColor'
 
   const handleMouseEnter = () => {
     onHighlight();
@@ -70,14 +92,32 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({ type, data, onDi
       onMouseEnter={handleMouseEnter}
       style={type === 'euphony' ? { borderLeft: '4px solid #db2777' } : {}}
     >
-      <button className="dismiss-btn" onClick={onDismiss}>✕</button>
+      <div className="card-header">
+         {/* Show Severity Badge for Spelling */}
+        {type === 'spelling' && data.severity && (
+          <span className={`badge ${data.severity === 'critical' ? 'badge-critical' : 'badge-minor'}`}>
+            {data.severity === 'critical' ? 'Critical' : 'Minor'}
+          </span>
+        )}
+        
+        {/* Show Confidence Bar */}
+        <ConfidenceBar score={data.confidenceScore} />
+        
+        <button className="dismiss-btn" onClick={onDismiss}>✕</button>
+      </div>
 
       {type === 'spelling' && (
         <>
           <div className="wrong-word">❌ {data.wrong}</div>
-          {data.suggestions.map((s, j) => (
-            <button key={j} className="suggestion-btn success-btn" onClick={() => onReplace(s)}>✓ {s}</button>
-          ))}
+          {data.explanation && <div className="reason-text">📝 {data.explanation}</div>}
+          
+          <div className="actions-row">
+            {data.suggestions.map((s, j) => (
+              <button key={j} className="suggestion-btn success-btn" onClick={() => onReplace(s)}>
+                ✓ {s}
+              </button>
+            ))}
+          </div>
         </>
       )}
 
@@ -85,14 +125,18 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({ type, data, onDi
         <>
           <div className="wrong-word" style={{ color: '#b45309' }}>💡 {data.current}</div>
           <div className="reason">{data.reason}</div>
-          <button className="suggestion-btn warning-btn" onClick={() => onReplace(data.suggestion)}>✨ {data.suggestion}</button>
+          <button className="suggestion-btn warning-btn" onClick={() => onReplace(data.suggestion)}>
+            ✨ {data.suggestion}
+          </button>
         </>
       )}
 
       {type === 'style' && (
         <>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>🔄 {data.current}</div>
-          <button className="suggestion-btn info-btn" onClick={() => onReplace(data.suggestion)}>➜ {data.suggestion}</button>
+          <button className="suggestion-btn info-btn" onClick={() => onReplace(data.suggestion)}>
+            ➜ {data.suggestion}
+          </button>
         </>
       )}
 
@@ -100,7 +144,9 @@ export const SuggestionCard: React.FC<SuggestionCardProps> = ({ type, data, onDi
         <>
           <div className="wrong-word" style={{ color: '#ea580c' }}>⚠️ {data.issue}</div>
           <div className="reason">{data.explanation}</div>
-          <button className="suggestion-btn orange-btn" onClick={() => onReplace(data.correctedSentence)}>✓ {data.correctedSentence}</button>
+          <button className="suggestion-btn orange-btn" onClick={() => onReplace(data.correctedSentence)}>
+            ✓ {data.correctedSentence}
+          </button>
         </>
       )}
 
